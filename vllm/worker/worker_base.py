@@ -390,6 +390,10 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         """Executes at least one model step on the given sequences, unless no
         sequences are provided."""
         start_time = time.perf_counter()
+        torch.cuda.memory._record_memory_history(max_entries=10000)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        file_name = f"/workspace/visual_mem_{timestamp}.pickle"
 
         inputs = self.prepare_input(execute_model_req)
         if inputs is None:
@@ -417,14 +421,18 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 orig_model_execute_time = intermediate_tensors.tensors.get(
                     "model_execute_time", torch.tensor(0)).item()
 
-        output = self.model_runner.execute_model(
-            model_input=model_input,
-            kv_caches=self.kv_cache[worker_input.virtual_engine]
-            if self.kv_cache is not None else None,
-            intermediate_tensors=intermediate_tensors,
-            num_steps=num_steps,
-            **kwargs,
-        )
+        try:
+            output = self.model_runner.execute_model(
+                model_input=model_input,
+                kv_caches=self.kv_cache[worker_input.virtual_engine]
+                if self.kv_cache is not None else None,
+                intermediate_tensors=intermediate_tensors,
+                num_steps=num_steps,
+                **kwargs,
+            )
+        except torch.OutOfMemoryError as e:
+            torch.cuda.memory._dump_snapshot(file_name)
+            raise e
 
         model_execute_time = time.perf_counter() - start_time
         if not get_pp_group().is_last_rank:

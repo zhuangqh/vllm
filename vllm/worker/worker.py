@@ -180,7 +180,12 @@ class Worker(LocalOrDistributedWorkerBase):
             from contextlib import nullcontext
             context = nullcontext()
         with context:
+            torch.cuda.memory._record_memory_history(max_entries=10000)
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+            file_name = f"/workspace/load_model_{timestamp}.pickle"
             self.model_runner.load_model()
+            torch.cuda.memory._dump_snapshot(file_name)
 
     def save_sharded_state(
         self,
@@ -288,6 +293,11 @@ class Worker(LocalOrDistributedWorkerBase):
 
         This also warms up the model, which may record CUDA graphs.
         """
+        torch.cuda.memory._record_memory_history(max_entries=10000)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        file_name = f"/workspace/init_cache_{timestamp}.pickle"
+
         raise_if_cache_size_invalid(
             num_gpu_blocks, self.cache_config.block_size,
             self.cache_config.is_attention_free,
@@ -306,6 +316,7 @@ class Worker(LocalOrDistributedWorkerBase):
         with context:
             self._init_cache_engine()
         self._warm_up_model()
+        torch.cuda.memory._dump_snapshot(file_name)
 
     def _init_cache_engine(self):
         assert self.cache_config.num_gpu_blocks is not None
